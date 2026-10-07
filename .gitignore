@@ -1,0 +1,7 @@
+/target/
+/.vscode/
+.DS_Store
+*.log
+/log/
+/release-drafts/
+/logs/

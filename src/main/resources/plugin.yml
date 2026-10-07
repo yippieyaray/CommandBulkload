@@ -1,0 +1,14 @@
+name: CommandBulkload
+version: '${project.version}'
+main: commandbulkload.CommandBulkloadPlugin
+api-version: '26.2'
+author: yippieyaray
+description: Load server commands from a text file and dispatch them sequentially as console.
+commands:
+  commandbulkload:
+    description: Check, run, inspect or cancel a console command file
+    usage: commandbulkload <check|run> <filename.cbl> | <status|cancel>
+permissions:
+  commandbulkload.command:
+    description: Check, run, inspect and cancel console-level command batches
+    default: op

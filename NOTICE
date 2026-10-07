@@ -1,0 +1,11 @@
+CommandBulkload — private Paper command batch runner
+Copyright (C) 2026 Raymond (yippieyaray).
+Licensed under GPL-3.0-or-later. See LICENSE.
+
+The Maven build layout, assembly layout and build.sh were adapted from the
+GPL-2.0-or-later Modifyworld Paper port by Raymond (yippieyaray), 2026.
+The inherited GPL-2.0-or-later build script may be used under GPL version 3.
+No gameplay code from the original Modifyworld is included.
+Added on 2026-10-07: independent batch parsing, execution, configuration,
+languages and regression tests.
+Paper API is provided by the server. JUnit and Mockito are test-only dependencies.
