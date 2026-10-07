@@ -20,7 +20,7 @@ class ConfigurationFilesTest {
     @Test void freshInstallAndRepeatedLoadPreserveConfiguration() throws Exception {
         var settings = ConfigurationFiles.load(root, defaults());
         assertEquals(20, settings.intervalTicks());
-        assertEquals("de", settings.language());
+        assertEquals("en", settings.language());
         String original = Files.readString(root.resolve("config.yml"));
         ConfigurationFiles.load(root, defaults());
         assertEquals(original, Files.readString(root.resolve("config.yml")));
@@ -55,7 +55,7 @@ class ConfigurationFilesTest {
         Files.writeString(root.resolve("config.yml.bak"), "previous backup");
         var steps = List.of(new ConfigurationFiles.Migration("1.0.0-BETA.2", yaml -> yaml.set("interval-ticks", 8)),
                 new ConfigurationFiles.Migration("1.0.0-BETA.3", yaml -> yaml.set("interval-ticks", yaml.getInt("interval-ticks") + 1)));
-        String resource = new String(defaults().readAllBytes(), StandardCharsets.UTF_8).replace("1.0.0-BETA.1", "1.0.0-BETA.3");
+        String resource = new String(defaults().readAllBytes(), StandardCharsets.UTF_8).replace("1.0.0", "1.0.0-BETA.3");
         var settings = ConfigurationFiles.load(root, new ByteArrayInputStream(resource.getBytes(StandardCharsets.UTF_8)), steps);
         assertEquals(9, settings.intervalTicks());
         assertEquals(original, Files.readString(root.resolve("config.yml.bak.1")));
@@ -69,7 +69,7 @@ class ConfigurationFilesTest {
     @Test void failedMigrationRetainsTheLastCompletedStep() throws Exception {
         Path file = root.resolve("config.yml");
         Files.writeString(file, "config-version: '1.0.0-BETA.1'\n");
-        String resource = new String(defaults().readAllBytes(), StandardCharsets.UTF_8).replace("1.0.0-BETA.1", "1.0.0-BETA.3");
+        String resource = new String(defaults().readAllBytes(), StandardCharsets.UTF_8).replace("1.0.0", "1.0.0-BETA.3");
         var steps = List.of(new ConfigurationFiles.Migration("1.0.0-BETA.2", yaml -> yaml.set("interval-ticks", 6)),
                 new ConfigurationFiles.Migration("1.0.0-BETA.3", yaml -> { throw new IllegalStateException("stop"); }));
         assertThrows(IllegalStateException.class, () -> ConfigurationFiles.load(root,
@@ -91,9 +91,9 @@ class ConfigurationFilesTest {
         Path file = root.resolve("config.yml");
         Files.writeString(file, original);
         ConfigurationFiles.load(root, defaults());
-        assertEquals(original.replace("BETA.0", "BETA.1"), Files.readString(file));
+        assertEquals(original.replace("1.0.0-BETA.0", "1.0.0"), Files.readString(file));
         ConfigurationFiles.load(root, defaults());
-        assertEquals(original.replace("BETA.0", "BETA.1"), Files.readString(file));
+        assertEquals(original.replace("1.0.0-BETA.0", "1.0.0"), Files.readString(file));
         assertFalse(Files.exists(root.resolve("config.yml.bak")));
     }
 

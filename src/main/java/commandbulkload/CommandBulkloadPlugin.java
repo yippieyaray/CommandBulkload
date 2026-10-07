@@ -3,6 +3,8 @@
 package commandbulkload;
 
 import java.io.IOException;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.logging.Level;
@@ -18,8 +20,7 @@ public final class CommandBulkloadPlugin extends JavaPlugin implements BatchRunn
     private ConfigurationFiles.Settings settings;
     private MessageCatalog messages;
     private BatchRunner runner;
-    private RunJournal journal;
-    private Path uploadsDirectory, logDirectory, dataDirectory;
+    private Path uploadsDirectory, dataDirectory;
     private CommandSender recipient;
     private volatile boolean stopped;
     private String loadingFile;
@@ -30,7 +31,6 @@ public final class CommandBulkloadPlugin extends JavaPlugin implements BatchRunn
         try {
             dataDirectory = getDataFolder().toPath();
             uploadsDirectory = Files.createDirectories(dataDirectory.resolve("Uploads")).toRealPath();
-            logDirectory = Files.createDirectories(Path.of("").toRealPath().resolve("logs/CommandBulkload"));
             settings = ConfigurationFiles.load(dataDirectory, getResource("config.yml"));
             messages = MessageCatalog.load(dataDirectory, settings.language());
             runner = new BatchRunner((task, ticks) -> {
@@ -38,8 +38,8 @@ public final class CommandBulkloadPlugin extends JavaPlugin implements BatchRunn
                 return scheduled::cancel;
             }, command -> getServer().dispatchCommand(getServer().getConsoleSender(), command),
                     this, settings.intervalTicks(), settings.progressEvery());
-            getServer().getConsoleSender().sendMessage(net.kyori.adventure.text.Component.text(
-                    "[CommandBulkload] CommandBulkload enabled!", net.kyori.adventure.text.format.NamedTextColor.GREEN));
+            getServer().getConsoleSender().sendMessage(Component.text(
+                    "[CommandBulkload] CommandBulkload enabled!", NamedTextColor.GREEN));
             say("enabled", Map.of("root", uploadsDirectory));
         } catch (IOException | org.bukkit.configuration.InvalidConfigurationException | RuntimeException failure) {
             getLogger().log(Level.SEVERE, "CommandBulkload startup failed. No batch can run. Fix configuration and restart.", failure);
@@ -48,8 +48,8 @@ public final class CommandBulkloadPlugin extends JavaPlugin implements BatchRunn
     }
     @Override public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!authorized(sender)) {
-            sender.sendMessage(messages == null ? "[CommandBulkload] You do not have permission to use this command."
-                    : messages.prefix() + messages.text("no-permission", Map.of()));
+            if (messages == null) sender.sendMessage("[CommandBulkload] You do not have permission to use this command.");
+            else reply(sender, "no-permission", Map.of());
             return true;
         }
         if (stopped || runner == null) return true;
@@ -78,58 +78,56 @@ public final class CommandBulkloadPlugin extends JavaPlugin implements BatchRunn
         try {
             getServer().getScheduler().runTaskAsynchronously(this, () -> {
                 BatchParser.Batch batch = null;
-                RunJournal audit = null;
                 String error = null;
                 try {
                     batch = new BatchParser().read(uploadsDirectory, filename, settings.maxFileBytes(), settings.maxCommands());
-                    if (execute) audit = RunJournal.open(logDirectory, batch);
                 } catch (IOException | RuntimeException failure) {
                     error = failure.getClass().getSimpleName() + ": " + failure.getMessage();
                 }
                 final var parsed = batch;
-                final var log = audit;
                 final var problem = error;
-                if (stopped) { closeUnused(log); return; }
+                if (stopped) return;
                 try {
-                    getServer().getScheduler().runTask(this, () -> loaded(token, filename, execute, parsed, log, problem));
-                } catch (RuntimeException disabled) { closeUnused(log); }
+                    getServer().getScheduler().runTask(this, () -> loaded(token, filename, execute, parsed, problem));
+                } catch (RuntimeException disabled) { /* Shutdown prevents loading completion. */ }
             });
         } catch (RuntimeException failure) {
             loadingFile = null;
             say("read-error", Map.of("file", filename, "reason", String.valueOf(failure.getMessage())));
         }
     }
-    private void loaded(long token, String filename, boolean execute, BatchParser.Batch batch, RunJournal audit, String error) {
-        if (stopped || loadGeneration != token) { closeUnused(audit); return; }
+    private void loaded(long token, String filename, boolean execute, BatchParser.Batch batch, String error) {
+        if (stopped || loadGeneration != token) { return; }
         loadingFile = null;
         if (!authorized(recipient) || recipient instanceof Player player && !player.isOnline()) {
-            closeUnused(audit);
             say("no-permission", Map.of());
             return;
         }
-        if (error != null) { closeUnused(audit); say("read-error", Map.of("file", filename, "reason", error)); return; }
+        if (error != null) { say("read-error", Map.of("file", filename, "reason", error)); return; }
         if (!execute) {
             say("checked", Map.of("file", filename, "total", batch.commands().size()));
             return;
         }
-        journal = audit;
         runner.start(batch);
     }
     @Override public void started(BatchParser.Batch batch) {
-        journal.write("START");
-        say("started", Map.of("file", batch.filename(), "total", batch.commands().size(), "log", journal.file()));
+        say("started", Map.of("file", batch.filename(), "total", batch.commands().size(), "log", "server log"));
     }
     @Override public void attempted(BatchParser.CommandLine command, boolean accepted, String error) {
-        journal.write("LINE " + command.line() + " DISPATCH " + (accepted ? "ACCEPTED" : "FAILED") + " COMMAND " + command.command()
-                + (error.isEmpty() ? "" : " REASON " + error));
+        if (!accepted) getLogger().warning("Dispatch failed at line " + command.line() + ": " + error);
+    }
+    @Override public void dispatching(BatchParser.CommandLine command) {
+        getServer().getConsoleSender().sendMessage(Component.text("[", NamedTextColor.WHITE)
+                .append(Component.text("CommandBulkload", NamedTextColor.DARK_GREEN))
+                .append(Component.text("] Dispatching line ", NamedTextColor.GRAY))
+                .append(Component.text(command.line(), NamedTextColor.AQUA))
+                .append(Component.text(": ", NamedTextColor.GRAY))
+                .append(Component.text(command.command(), NamedTextColor.WHITE)));
     }
     @Override public void progress(BatchRunner.Snapshot snapshot) { say("progress", details(snapshot)); }
     @Override public void finished(BatchRunner.Snapshot snapshot, String reason) {
         var fields = new java.util.LinkedHashMap<String, Object>(details(snapshot));
         fields.put("reason", reason);
-        try { if (journal != null) journal.write("END " + snapshot + " REASON " + reason); }
-        catch (RuntimeException failure) { getLogger().log(Level.SEVERE, "Could not finish audit log.", failure); }
-        finally { closeUnused(journal); journal = null; }
         say(snapshot.state() == BatchRunner.State.COMPLETED ? "finished" : "stopped", fields);
     }
     private Map<String, Object> details(BatchRunner.Snapshot snapshot) {
@@ -142,24 +140,18 @@ public final class CommandBulkloadPlugin extends JavaPlugin implements BatchRunn
                 || sender instanceof Player player && (player.isOp() || player.hasPermission("commandbulkload.command"));
     }
     private void reply(CommandSender sender, String key, Map<String, ?> fields) {
-        sender.sendMessage(messages.prefix() + messages.text(key, fields));
+        sender.sendMessage(sender instanceof Player ? messages.clientText(key, fields)
+                : messages.prefix() + messages.text(key, fields));
     }
     private void say(String key, Map<String, ?> fields) {
         getServer().getConsoleSender().sendMessage(messages.prefix() + messages.text(key, fields));
         if (recipient instanceof Player player && player.isOnline() && authorized(player)) reply(player, key, fields);
-    }
-    private void closeUnused(RunJournal audit) {
-        if (audit == null) return;
-        try { audit.close(); }
-        catch (IOException failure) { getLogger().log(Level.SEVERE, "Could not close audit log.", failure); }
     }
     @Override public void onDisable() {
         stopped = true;
         loadingFile = null;
         loadGeneration++;
         if (runner != null) runner.cancel("Plugin disabled; pending commands were cancelled.");
-        // A dispatch-triggered shutdown is finalized by the runner after dispatch returns.
-        if (runner == null || !runner.dispatching()) { closeUnused(journal); journal = null; }
         getServer().getScheduler().cancelTasks(this);
     }
 }

@@ -2,7 +2,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>commandbulkload</groupId>
     <artifactId>CommandBulkload</artifactId>
-    <version>1.0.0-BETA.1</version>
+    <version>1.0.0</version>
     <name>CommandBulkload</name>
     <url>https://github.com/yippieyaray/CommandBulkload</url>
     <licenses>

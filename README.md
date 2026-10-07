@@ -4,7 +4,7 @@ A Paper plugin that loads server commands from a text file and dispatches
 one command at a time through the server console. Useful when a hosting panel
 accepts only individual console commands.
 
-**1.0.0-BETA.1 — Paper 26.2, Java 25.** Compiled against Paper API
+**1.0.0 — Paper 26.2, Java 25.** Compiled against Paper API
 `26.2.build.130-stable`. No Spigot or Folia support claim. LuckPerms commands work
 through the ordinary server console; no LuckPerms API dependency is required.
 
@@ -53,8 +53,10 @@ administrators. These are ordinary Minecraft/plugin commands, not just LuckPerms
 permission commands. For example, `say`, `version` and other installed-plugin
 commands are supported. Files never execute operating-system commands.
 Players receive progress and final reports while online and still authorized.
+Client messages use a green plugin name, gray text, aqua values, green success
+messages and red errors. Dispatch lines in the server console use a green prefix, aqua line numbers and white commands.
 RCON receives immediate replies; asynchronous reports appear in the server console
-and audit log.
+and server log.
 
 Blank lines and full-line `#` comments are ignored. A leading `/` or Markdown `>`
 is accepted. Arguments, quotes, wildcards, inline `#` characters and repeated
@@ -85,15 +87,26 @@ Edit `plugins/CommandBulkload/config.yml` and restart:
 | `max-file-bytes` | `1048576` | Input size limit (1 MiB) |
 | `max-commands` | `10000` | Maximum commands in one file |
 | `progress-every` | `25` | Progress message after this many command dispatches |
-| `language` | `de` | `en`, `de`, `es`, `fr`, `pt_br`, `pl`, `tr` or `own` |
+| `language` | `en` | `en`, `de`, `es`, `fr`, `pt_br`, `pl`, `tr` or `own` |
 
-For custom messages, copy a bundled language to `lang/own.yml`, set `language: own`
-and restart. Custom texts are preserved. Unchanged legacy progress and completion
+To use your own messages, copy `plugins/CommandBulkload/lang/de.yml` (or another
+bundled language) to `plugins/CommandBulkload/lang/own.yml` and edit the copy.
+Set this in `plugins/CommandBulkload/config.yml`:
+
+```yaml
+language: own
+```
+
+Restart the server to apply it. Create `own.yml` before selecting it; a missing
+file prevents plugin startup. Missing entries in `own.yml` fall back to English.
+Keep each message on one line and preserve its named placeholders.
+
+Custom texts are preserved. Unchanged legacy progress and completion
 texts are updated with numbered `.bak` backups. Missing entries fall back to bundled
 selected-language texts, then English; `own` falls back to English. Every YAML
 message must be single-line text. Keep named placeholders such as `{file}`,
 `{total}`, `{dispatched}`, `{errors}`, `{remaining}` and `{reason}`. The `prefix`
-entry controls `[CommandBulkload]`. Technical exception details and audit logs
+entry controls `[CommandBulkload]`. Technical exception details and dispatch records
 remain English. Translation files have not received native-speaker review.
 
 The managed `config-version` supports future independent migrations with fixed
@@ -105,12 +118,21 @@ files stop plugin startup with a clear log message.
 
 ## Logs
 
-Each run creates `logs/CommandBulkload/run-*.log` relative to the server main directory, recording input filename,
-SHA-256, original line numbers, full commands and dispatch results. The end record
-contains counts and completion/cancellation/failure state. Small audit records are
-written and flushed after each dispatch. An audit write failure stops further
-commands. Logs contain potentially sensitive command arguments; they remain on
-your server and are not part of the repository or build artifacts.
+CommandBulkload writes directly to the main server log. The start message names
+the input file once; each command is logged immediately before dispatch:
+
+```text
+[CommandBulkload] Dispatching line 12: lp group …
+```
+
+The prefix is green, the line number aqua and the command white. Progress,
+completion and dispatch failures also appear in the main log, alongside command
+responses from target plugins. Asynchronous responses may arrive later and cannot
+always be attributed to a particular command.
+
+No separate run logs or gzip archives are created; the server handles log rotation.
+Existing files under `logs/CommandBulkload/` are left intact. Commands can contain
+sensitive arguments, which are now recorded in the main server log.
 
 ## Build
 
@@ -126,7 +148,7 @@ JDK `jdk-25.0.4.1+1/Contents/Home` and Maven `apache-maven-3.9.11`. Overrides:
 No tools are downloaded or system Java settings changed. Maven normally uses
 `~/.m2/repository`. Mockito is test-only and loads at test-JVM startup.
 
-Artifacts: `target/CommandBulkload.jar` and `target/CommandBulkload-1.0.0-BETA.1.zip`.
+Artifacts: `target/CommandBulkload.jar` and `target/CommandBulkload-1.0.0.zip`.
 The ZIP contains documentation, a harmless example and corresponding source.
 Automated verification does not replace a live GPortal/Paper test.
 
@@ -135,7 +157,7 @@ Automated verification does not replace a live GPortal/Paper test.
 GPL-3.0-or-later. See LICENSE and NOTICE. Private project; no Hangar publication.
 
 
-Local verification on 2026-10-07: 83 automated tests passed with
+Local verification on 2026-10-07: 84 automated tests passed with
 `./build.sh -B -o clean verify` (0 failures, 0 errors, 0 skipped).
 
 `.cbl` stands for Command Bulk Load. The file remains plain UTF-8 text and can

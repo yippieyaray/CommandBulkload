@@ -44,10 +44,9 @@ class PluginIntegrationTest {
         when(scheduler.runTask(eq(plugin), any(Runnable.class))).thenAnswer(call -> { main.add(call.getArgument(1)); return mock(BukkitTask.class); });
         when(scheduler.runTaskLater(eq(plugin), any(Runnable.class), anyLong())).thenAnswer(call -> { delayed.add(call.getArgument(1)); return mock(BukkitTask.class); });
         when(server.dispatchCommand(eq(console), anyString())).thenReturn(true);
+        Files.createDirectories(root.resolve("plugin"));
+        Files.writeString(root.resolve("plugin/config.yml"), "language: de\n");
         plugin.onEnable();
-        var field = CommandBulkloadPlugin.class.getDeclaredField("logDirectory");
-        field.setAccessible(true);
-        field.set(plugin, root.resolve("logs/CommandBulkload"));
         Files.writeString(root.resolve("plugin/Uploads/batch.cbl"), "say one\nsay two\n");
         clearInvocations(console);
     }
@@ -56,7 +55,7 @@ class PluginIntegrationTest {
     @Test void unauthorizedPlayersAreRejectedBeforeAnyFileRead() {
         var player = mock(Player.class);
         plugin.onCommand(player, command, "commandbulkload", new String[] {"run", "batch.cbl"});
-        verify(player).sendMessage(contains("keine Berechtigung"));
+        verify(player).sendMessage(argThat((String message) -> message.replaceAll("§.", "").contains("keine Berechtigung")));
         assertTrue(background.isEmpty());
         verify(server, never()).dispatchCommand(any(), anyString());
     }
@@ -70,7 +69,7 @@ class PluginIntegrationTest {
         verify(server, never()).dispatchCommand(any(), anyString());
         assertTrue(delayed.isEmpty());
     }
-    @Test void runDispatchesOnScheduledCallbacksAndWritesAudit() throws Exception {
+    @Test void runLogsEachCommandBeforeDispatchWithoutCreatingSeparateFiles() throws Exception {
         send("run", "batch.cbl"); loaded();
         verify(server, never()).dispatchCommand(any(), anyString());
         delayed.removeFirst().run();
@@ -79,12 +78,20 @@ class PluginIntegrationTest {
         verify(console).sendMessage(contains("versucht 1/2"));
         delayed.removeFirst().run();
         verify(server).dispatchCommand(console, "say two");
-        var logs = Files.list(root.resolve("logs/CommandBulkload")).toList();
-        assertEquals(1, logs.size());
-        String audit = Files.readString(logs.getFirst());
-        assertTrue(audit.contains("LINE 1 DISPATCH ACCEPTED COMMAND say one"));
-        assertTrue(audit.contains("LINE 2 DISPATCH ACCEPTED COMMAND say two"));
-        assertTrue(audit.contains("COMPLETED"));
+        var order = inOrder(console, server);
+        order.verify(console).sendMessage(argThat((net.kyori.adventure.text.Component message) ->
+                net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText().serialize(message)
+                        .equals("[CommandBulkload] Dispatching line 1: say one")));
+        order.verify(server).dispatchCommand(console, "say one");
+        order.verify(console).sendMessage(argThat((net.kyori.adventure.text.Component message) ->
+                net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText().serialize(message)
+                        .equals("[CommandBulkload] Dispatching line 2: say two")));
+        order.verify(server).dispatchCommand(console, "say two");
+        verify(console).sendMessage(argThat((net.kyori.adventure.text.Component message) ->
+                message.children().stream().anyMatch(part -> part instanceof net.kyori.adventure.text.TextComponent text
+                        && text.content().equals("say one")
+                        && net.kyori.adventure.text.format.NamedTextColor.WHITE.equals(text.color()))));
+        assertFalse(Files.exists(root.resolve("logs/CommandBulkload")));
         verify(console).sendMessage(contains("abgeschlossen: 2 abgesendet, 0 Dispatch-Fehler, 0 verbleibend."));
     }
     @Test void cancelledLoadingCannotStartAfterCallbackAndNewLoadsStayIndependent() {
@@ -111,20 +118,13 @@ class PluginIntegrationTest {
         assertTrue(delayed.isEmpty());
         verify(server, never()).dispatchCommand(console, "say two");
         verify(console).sendMessage(contains("Zeile 1"));
-        try (var stream = Files.list(root.resolve("logs/CommandBulkload"))) {
-            assertTrue(Files.readString(stream.findFirst().orElseThrow()).contains("DISPATCH FAILED"));
-        }
     }
-    @Test void commandTriggeredDisableStillFinishesCurrentAuditAndStopsTheNext() throws Exception {
+    @Test void commandTriggeredDisableReportsCurrentDispatchAndStopsTheNext() throws Exception {
         when(server.dispatchCommand(console, "say one")).thenAnswer(call -> { plugin.onDisable(); return true; });
         send("run", "batch.cbl"); loaded(); delayed.removeFirst().run();
         assertTrue(delayed.isEmpty());
         verify(server, never()).dispatchCommand(console, "say two");
-        try (var stream = Files.list(root.resolve("logs/CommandBulkload"))) {
-            String log = Files.readString(stream.findFirst().orElseThrow());
-            assertTrue(log.contains("LINE 1 DISPATCH ACCEPTED"));
-            assertTrue(log.contains("CANCELLED"));
-        }
+        verify(console).sendMessage(contains("1 abgesendet"));
     }
     @Test void malformedFileRunsNoPartialCommands() throws Exception {
         Files.writeString(root.resolve("plugin/Uploads/batch.cbl"), "say first\n/\n");
@@ -137,9 +137,9 @@ class PluginIntegrationTest {
         var remote = mock(org.bukkit.command.RemoteConsoleCommandSender.class);
         plugin.onCommand(remote, command, "commandbulkload", new String[] {"run", "batch.cbl"});
         assertEquals(1, background.size());
-        verify(remote).sendMessage(contains("Lese batch.cbl"));
+        verify(remote).sendMessage(contains("Lese..."));
         plugin.onCommand(remote, command, "commandbulkload", new String[] {"status"});
-        verify(remote, times(2)).sendMessage(contains("Lese batch.cbl"));
+        verify(remote, times(2)).sendMessage(contains("Lese..."));
         plugin.onCommand(remote, command, "commandbulkload", new String[] {"cancel"});
         loaded();
         assertTrue(delayed.isEmpty());
@@ -160,14 +160,14 @@ class PluginIntegrationTest {
         when(player.hasPermission("commandbulkload.command")).thenReturn(!op);
         Files.writeString(root.resolve("plugin/Uploads/batch.cbl"), "say hi\nversion\n");
         plugin.onCommand(player, command, "commandbulkload", new String[] {"run", "batch.cbl"});
-        verify(player).sendMessage(contains("Lese batch.cbl"));
+        verify(player).sendMessage(argThat((String message) -> message.replaceAll("§.", "").contains("Lese...")));
         loaded();
-        verify(player).sendMessage(contains("gestartet"));
+        verify(player).sendMessage(argThat((String message) -> message.replaceAll("§.", "").contains("gestartet")));
         delayed.removeFirst().run(); delayed.removeFirst().run();
         verify(server).dispatchCommand(console, "say hi");
         verify(server).dispatchCommand(console, "version");
         verify(server, never()).dispatchCommand(eq(player), anyString());
-        verify(player).sendMessage(contains("abgeschlossen"));
+        verify(player).sendMessage(argThat((String message) -> message.replaceAll("§.", "").contains("abgeschlossen")));
     }
     @Test void revokedPermissionDuringLoadingPreventsDispatch() {
         var player = mock(Player.class);
@@ -184,7 +184,7 @@ class PluginIntegrationTest {
         var player = mock(Player.class);
         plugin.onCommand(player, command, "commandbulkload", new String[] {"status"});
         plugin.onCommand(player, command, "commandbulkload", new String[] {"cancel"});
-        verify(player, times(2)).sendMessage(contains("keine Berechtigung"));
+        verify(player, times(2)).sendMessage(argThat((String message) -> message.replaceAll("§.", "").contains("keine Berechtigung")));
         delayed.removeFirst().run();
         verify(server).dispatchCommand(console, "say one");
     }

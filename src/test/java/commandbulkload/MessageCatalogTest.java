@@ -35,12 +35,23 @@ class MessageCatalogTest {
         String original = "# Keep\nprogress: '{file}: {attempted}/{total} versucht, {dispatched} abgesendet.'\nfinished: 'Custom {file}'\n";
         Files.writeString(file, original);
         var catalog = MessageCatalog.load(root, "de");
-        assertEquals("batch.cbl: 25 von 475 abgesendet.", catalog.text("progress", Map.of("file", "batch.cbl", "dispatched", 25, "total", 475)));
+        assertEquals("25 von 475 abgesendet.", catalog.text("progress", Map.of("file", "batch.cbl", "dispatched", 25, "total", 475)));
         assertEquals("Custom batch.cbl", catalog.text("finished", Map.of("file", "batch.cbl")));
         assertEquals(original, Files.readString(root.resolve("lang/de.yml.bak")));
         assertTrue(Files.readString(file).startsWith("# Keep\n"));
         MessageCatalog.load(root, "de");
         assertFalse(Files.exists(root.resolve("lang/de.yml.bak.1")));
+    }
+    @Test void clientColorsHighlightPrefixValuesSuccessAndErrorsWithoutChangingConsoleText() throws Exception {
+        var messages = MessageCatalog.load(root, "en");
+        String colored = messages.clientText("progress", Map.of("file", "batch.cbl", "dispatched", 25, "total", 475));
+        assertTrue(colored.startsWith("§f[§2CommandBulkload§f] §7"));
+        assertTrue(colored.contains("§b25§7"));
+        assertEquals(messages.prefix() + messages.text("progress", Map.of("file", "batch.cbl", "dispatched", 25, "total", 475)),
+                colored.replaceAll("§.", ""));
+        assertTrue(messages.clientText("no-permission", Map.of()).contains("§c"));
+        assertTrue(messages.clientText("finished", Map.of()).contains("§a"));
+        assertFalse(messages.text("progress", Map.of()).contains("§"));
     }
     @Test void customOwnIsPreservedAndFallbackIsEnglish() throws Exception {
         Files.createDirectories(root.resolve("lang"));

@@ -12,6 +12,7 @@ public final class BatchRunner {
     @FunctionalInterface public interface Dispatcher { boolean dispatch(String command); }
     public interface Observer {
         void started(BatchParser.Batch batch);
+        default void dispatching(BatchParser.CommandLine command) { }
         void attempted(BatchParser.CommandLine command, boolean accepted, String error);
         void progress(Snapshot snapshot);
         void finished(Snapshot snapshot, String reason);
@@ -77,14 +78,14 @@ public final class BatchRunner {
         boolean accepted = false;
         String reason = "";
         dispatching = true;
-        try { accepted = dispatcher.dispatch(command.command()); }
+        try { observer.dispatching(command); accepted = dispatcher.dispatch(command.command()); }
         catch (RuntimeException failure) { reason = failure.getClass().getSimpleName() + ": " + failure.getMessage(); }
         finally { dispatching = false; }
         if (accepted) dispatched++; else errors++;
         if (!accepted && reason.isEmpty()) reason = "Dispatch returned false (unknown command or dispatch failure).";
         try { observer.attempted(command, accepted, reason); }
         catch (RuntimeException failure) {
-            finish(State.FAILED, "Audit failure after line " + lastLine + ": " + failure.getMessage());
+            finish(State.FAILED, "Reporting failure after line " + lastLine + ": " + failure.getMessage());
             return;
         }
         if (deferredReason != null) {

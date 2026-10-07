@@ -7,4 +7,4 @@ max-commands: 10000
 # Progress messages every this many dispatched commands, plus start and finish.
 progress-every: 25
 # en, de, es, fr, pt_br, pl, tr or own. own requires lang/own.yml.
-language: de
+language: en
