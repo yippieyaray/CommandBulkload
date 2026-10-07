@@ -1,6 +1,6 @@
 # CommandBulkload
 
-A private Paper plugin that loads server commands from a text file and dispatches
+A Paper plugin that loads server commands from a text file and dispatches
 one command at a time through the server console. Useful when a hosting panel
 accepts only individual console commands.
 
